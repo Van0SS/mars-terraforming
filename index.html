@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Mars Terraforming RTS Game - Updated Version</title>
+    <style>
+      /* Same CSS as before for styling */
+      body {
+        background-color: #1a1a1a;
+        color: white;
+        text-align: center;
+        font-family: Arial, sans-serif;
+        margin: 0;
+        overflow: hidden;
+      }
+      #gameContainer {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        height: 100vh;
+      }
+      #gameCanvas {
+        border: 1px solid #555;
+        background-color: #2b2b2b;
+        margin-top: 5px;
+        cursor: crosshair;
+      }
+      #gameUI {
+        display: flex;
+        justify-content: center;
+        flex-wrap: wrap;
+        background-color: #111;
+        padding: 10px;
+        width: 100%;
+      }
+      #gameUI > div {
+        margin: 10px;
+      }
+      #actions button {
+        margin: 5px;
+        padding: 8px 16px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      #stats {
+        font-size: 14px;
+        text-align: left;
+      }
+      #stats .resource-display {
+        display: flex;
+        align-items: center;
+      }
+      #stats .resource-display img {
+        width: 20px;
+        height: 20px;
+        margin-right: 5px;
+      }
+      #log {
+        background-color: #222;
+        color: #ddd;
+        padding: 5px;
+        height: 100px;
+        overflow-y: auto;
+        width: 98%;
+        margin: 5px auto;
+        font-size: 12px;
+        text-align: left;
+      }
+      #winScreen,
+      #loseScreen {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.8);
+        color: #fff;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-size: 48px;
+        z-index: 1000;
+      }
+      #winScreen button,
+      #loseScreen button {
+        margin-top: 20px;
+        padding: 10px 20px;
+        font-size: 24px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="gameContainer">
+      <h1>Mars Terraforming RTS Game - Updated Version</h1>
+      <div id="gameUI">
+        <div id="actions">
+          <button id="buildHabitat">Build Habitat (50 Minerals)</button>
+          <button id="buildSolarPanel">Build Solar Panel (30 Minerals)</button>
+          <button id="buildMine" disabled>Build Mine (40 Minerals)</button>
+          <button id="buildOxygenGenerator" disabled>
+            Build Oxygen Generator (60 Minerals)
+          </button>
+          <button id="buildDefenseTurret" disabled>
+            Build Defense Turret (80 Minerals)
+          </button>
+          <button id="createRover" disabled>Create Rover (20 Minerals)</button>
+          <button id="createEngineer" disabled>
+            Create Engineer (30 Minerals)
+          </button>
+          <button id="researchTech">
+            Research Tech (100/300/500 Minerals)
+          </button>
+        </div>
+        <div id="stats">
+          <div class="resource-display">
+            <img src="https://i.imgur.com/ZN5Xb7G.png" alt="Minerals" />
+            Minerals: <span id="minerals">300</span>
+          </div>
+          <div class="resource-display">
+            <img src="https://i.imgur.com/Gucj0Hy.png" alt="Energy" />
+            Energy: <span id="energy">150</span>
+          </div>
+          <div class="resource-display">
+            <img src="https://i.imgur.com/ZKMnXce.png" alt="Oxygen" />
+            Oxygen Level (100 to win): <span id="oxygen">0%</span>
+          </div>
+          <div>Population (200 to win): <span id="population">0</span></div>
+          <div>Tech Level (5 to win): <span id="techLevel">0</span></div>
+        </div>
+      </div>
+      <canvas id="gameCanvas" width="800" height="500"></canvas>
+      <div id="log"></div>
+    </div>
+    <div id="winScreen" style="display: none">
+      <div>
+        <p>Congratulations! You've successfully terraformed Mars!</p>
+        <button onclick="location.reload()">Play Again</button>
+      </div>
+    </div>
+    <div id="loseScreen" style="display: none">
+      <div>
+        <p>Your colony has been destroyed!</p>
+        <button onclick="location.reload()">Try Again</button>
+      </div>
+    </div>
+
+    <script>
+      // Game variables
+      var canvas = document.getElementById("gameCanvas");
+      var ctx = canvas.getContext("2d");
+
+      var minerals = 300; // Increased starting minerals
+      var energy = 150; // Increased starting energy
+      var oxygen = 0; // Percentage
+      var population = 0;
+      var techLevel = 0;
+      var gameTime = 0; // Variable to track game time
+      var gameOver = false;
+
+      var habitats = [];
+      var solarPanels = [];
+      var mines = [];
+      var oxygenGenerators = [];
+      var defenseTurrets = [];
+      var rovers = [];
+      var engineers = [];
+      var enemies = [];
+
+      var selectedAction = null;
+      var logElement = document.getElementById("log");
+
+      // Base class for all entities
+      function Entity(x, y, size, health) {
+        this.x = x;
+        this.y = y;
+        this.size = size;
+        this.health = health || 100;
+        this.maxHealth = this.health;
+      }
+
+      // Building classes
+      function Habitat(x, y) {
+        Entity.call(this, x, y, 30);
+        this.energyConsumption = 0.5;
+      }
+      Habitat.prototype = Object.create(Entity.prototype);
+
+      function SolarPanel(x, y) {
+        Entity.call(this, x, y, 25);
+      }
+      SolarPanel.prototype = Object.create(Entity.prototype);
+
+      function Mine(x, y) {
+        Entity.call(this, x, y, 35);
+        this.energyConsumption = 0.3;
+      }
+      Mine.prototype = Object.create(Entity.prototype);
+
+      function OxygenGenerator(x, y) {
+        Entity.call(this, x, y, 30);
+        this.energyConsumption = 1;
+      }
+      OxygenGenerator.prototype = Object.create(Entity.prototype);
+
+      function DefenseTurret(x, y) {
+        Entity.call(this, x, y, 20);
+        this.attackRange = 100;
+        this.energyConsumption = 0.5;
+      }
+      DefenseTurret.prototype = Object.create(Entity.prototype);
+
+      // Unit classes
+      function Rover(x, y) {
+        Entity.call(this, x, y, 10);
+        this.target = null;
+        this.energyConsumption = 0.1;
+      }
+      Rover.prototype = Object.create(Entity.prototype);
+
+      function Engineer(x, y) {
+        Entity.call(this, x, y, 10);
+        this.target = null;
+        this.energyConsumption = 0.1;
+      }
+      Engineer.prototype = Object.create(Entity.prototype);
+      // Enemy class
+      function Enemy(x, y, speed, health) {
+        Entity.call(this, x, y, 15, health || 50);
+        this.speed = speed || 0.5;
+        this.target = null;
+      }
+      Enemy.prototype = Object.create(Entity.prototype);
+      Enemy.prototype = Object.create(Entity.prototype);
+
+      // Update stats display
+      function updateStats() {
+        document.getElementById("minerals").innerText = Math.floor(minerals);
+        document.getElementById("energy").innerText = Math.floor(energy);
+        document.getElementById("oxygen").innerText = oxygen.toFixed(1) + "%";
+        document.getElementById("population").innerText = population;
+        document.getElementById("techLevel").innerText = techLevel;
+      }
+
+      // Add message to log
+      function addLog(message) {
+        var p = document.createElement("p");
+        p.innerText = message;
+        logElement.appendChild(p);
+        logElement.scrollTop = logElement.scrollHeight;
+      }
+
+      // Unlock actions based on tech level
+      function updateActions() {
+        document.getElementById("buildMine").disabled = techLevel < 2;
+        document.getElementById("buildOxygenGenerator").disabled =
+          techLevel < 3;
+        document.getElementById("buildDefenseTurret").disabled = techLevel < 1;
+        document.getElementById("createRover").disabled = techLevel < 3;
+        document.getElementById("createEngineer").disabled = techLevel < 3;
+      }
+
+      // Handle canvas clicks
+      canvas.addEventListener("click", function (event) {
+        if (!selectedAction || gameOver) return;
+
+        var rect = canvas.getBoundingClientRect();
+        var x = event.clientX - rect.left;
+        var y = event.clientY - rect.top;
+
+        switch (selectedAction) {
+          case "habitat":
+            if (minerals >= 50) {
+              habitats.push(new Habitat(x, y));
+              minerals -= 50;
+              population += 10;
+              addLog("Habitat built.");
+            } else {
+              addLog("Not enough minerals to build Habitat.");
+            }
+            break;
+          case "solarPanel":
+            if (minerals >= 30) {
+              solarPanels.push(new SolarPanel(x, y));
+              minerals -= 30;
+              addLog("Solar Panel built.");
+            } else {
+              addLog("Not enough minerals to build Solar Panel.");
+            }
+            break;
+          case "mine":
+            if (minerals >= 40) {
+              mines.push(new Mine(x, y));
+              minerals -= 40;
+              addLog("Mine built.");
+            } else {
+              addLog("Not enough minerals to build Mine.");
+            }
+            break;
+          case "oxygenGenerator":
+            if (minerals >= 60) {
+              oxygenGenerators.push(new OxygenGenerator(x, y));
+              minerals -= 60;
+              addLog("Oxygen Generator built.");
+            } else {
+              addLog("Not enough minerals to build Oxygen Generator.");
+            }
+            break;
+          case "defenseTurret":
+            if (minerals >= 80) {
+              defenseTurrets.push(new DefenseTurret(x, y));
+              minerals -= 80;
+              addLog("Defense Turret built.");
+            } else {
+              addLog("Not enough minerals to build Defense Turret.");
+            }
+            break;
+          case "rover":
+            if (minerals >= 20) {
+              rovers.push(new Rover(x, y));
+              minerals -= 20;
+              addLog("Rover created.");
+            } else {
+              addLog("Not enough minerals to create Rover.");
+            }
+            break;
+          case "engineer":
+            if (minerals >= 30) {
+              engineers.push(new Engineer(x, y));
+              minerals -= 30;
+              addLog("Engineer created.");
+            } else {
+              addLog("Not enough minerals to create Engineer.");
+            }
+            break;
+        }
+
+        selectedAction = null;
+        updateStats();
+      });
+
+      // Handle button clicks
+      document
+        .getElementById("buildHabitat")
+        .addEventListener("click", function () {
+          selectedAction = "habitat";
+        });
+
+      document
+        .getElementById("buildSolarPanel")
+        .addEventListener("click", function () {
+          selectedAction = "solarPanel";
+        });
+
+      document
+        .getElementById("buildMine")
+        .addEventListener("click", function () {
+          selectedAction = "mine";
+        });
+
+      document
+        .getElementById("buildOxygenGenerator")
+        .addEventListener("click", function () {
+          selectedAction = "oxygenGenerator";
+        });
+
+      document
+        .getElementById("buildDefenseTurret")
+        .addEventListener("click", function () {
+          selectedAction = "defenseTurret";
+        });
+
+      document
+        .getElementById("createRover")
+        .addEventListener("click", function () {
+          selectedAction = "rover";
+        });
+
+      document
+        .getElementById("createEngineer")
+        .addEventListener("click", function () {
+          selectedAction = "engineer";
+        });
+
+      document
+        .getElementById("researchTech")
+        .addEventListener("click", function () {
+          var cost = 100 + techLevel * 200;
+          if (minerals >= cost) {
+            minerals -= cost;
+            techLevel += 1;
+            addLog("Tech Level increased to " + techLevel + ".");
+            updateActions();
+            updateStats();
+          } else {
+            addLog("Not enough minerals to research!");
+          }
+        });
+
+      // Add this function after Entity class definition
+      function buildRandomHabitat() {
+        const x = Math.random() * (canvas.width - 60) + 30; // Keep away from edges
+        const y = Math.random() * (canvas.height - 60) + 30;
+        habitats.push(new Habitat(x, y));
+        population += 10;
+        minerals -= 50;
+        addLog("Initial habitat built automatically.");
+      }
+
+      // Add this right before gameLoop() call at the end
+      buildRandomHabitat();
+
+      // Game loop
+      function gameLoop() {
+        if (gameOver) return;
+
+        // Update game time
+        gameTime += 1 / 60; // Assuming 60 FPS
+
+        // Clear canvas
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Draw buildings and units
+        drawEntities();
+
+        // Resource generation and consumption
+        resourceGenerationAndConsumption();
+
+        // Enemy logic
+        enemyLogic();
+
+        // Unit actions
+        unitActions();
+
+        // Environment effects
+        environmentEffects();
+
+        // Check win condition
+        checkWinCondition();
+
+        // Check lose condition
+        checkLoseCondition();
+
+        updateStats();
+        requestAnimationFrame(gameLoop);
+      }
+
+      function drawEntities() {
+        // Draw habitats
+        habitats.forEach(function (habitat) {
+          ctx.fillStyle = "#00aaff";
+          ctx.fillRect(
+            habitat.x - habitat.size / 2,
+            habitat.y - habitat.size / 2,
+            habitat.size,
+            habitat.size
+          );
+
+          // Draw health bar
+          drawHealthBar(habitat);
+        });
+
+        // Draw solar panels
+        solarPanels.forEach(function (panel) {
+          ctx.fillStyle = "#ffff00";
+          ctx.fillRect(
+            panel.x - panel.size / 2,
+            panel.y - panel.size / 2,
+            panel.size,
+            panel.size / 4
+          );
+
+          // Draw health bar
+          drawHealthBar(panel);
+        });
+
+        // Draw mines
+        mines.forEach(function (mine) {
+          ctx.fillStyle = "#aaaaaa";
+          ctx.fillRect(
+            mine.x - mine.size / 2,
+            mine.y - mine.size / 2,
+            mine.size,
+            mine.size
+          );
+
+          // Draw health bar
+          drawHealthBar(mine);
+        });
+
+        // Draw oxygen generators
+        oxygenGenerators.forEach(function (generator) {
+          ctx.fillStyle = "#00ff00";
+          ctx.beginPath();
+          ctx.arc(generator.x, generator.y, generator.size / 2, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Draw health bar
+          drawHealthBar(generator);
+        });
+
+        // Draw defense turrets
+        defenseTurrets.forEach(function (turret) {
+          ctx.fillStyle = "#ff0000";
+          ctx.fillRect(
+            turret.x - turret.size / 2,
+            turret.y - turret.size / 2,
+            turret.size,
+            turret.size
+          );
+
+          // Draw health bar
+          drawHealthBar(turret);
+        });
+
+        // Draw rovers
+        rovers.forEach(function (rover) {
+          ctx.fillStyle = "#ff8800";
+          ctx.beginPath();
+          ctx.arc(rover.x, rover.y, rover.size, 0, Math.PI * 2);
+          ctx.fill();
+        });
+
+        // Draw engineers
+        engineers.forEach(function (engineer) {
+          ctx.fillStyle = "#ffffff";
+          ctx.beginPath();
+          ctx.arc(engineer.x, engineer.y, engineer.size, 0, Math.PI * 2);
+          ctx.fill();
+        });
+
+        // Draw enemies
+        enemies.forEach(function (enemy) {
+          ctx.fillStyle = "#ff00ff";
+          ctx.beginPath();
+          ctx.arc(enemy.x, enemy.y, enemy.size, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Draw health bar
+          drawHealthBar(enemy);
+        });
+      }
+
+      function drawHealthBar(entity) {
+        ctx.fillStyle = "#ff0000";
+        ctx.fillRect(
+          entity.x - entity.size / 2,
+          entity.y - entity.size / 2 - 10,
+          entity.size,
+          5
+        );
+        ctx.fillStyle = "#00ff00";
+        ctx.fillRect(
+          entity.x - entity.size / 2,
+          entity.y - entity.size / 2 - 10,
+          entity.size * (entity.health / entity.maxHealth),
+          5
+        );
+      }
+
+      function resourceGenerationAndConsumption() {
+        // Energy consumption
+        var totalEnergyConsumption = 0;
+
+        // Habitats consume energy
+        habitats.forEach(function (habitat) {
+          totalEnergyConsumption += habitat.energyConsumption;
+        });
+
+        // Mines consume energy
+        mines.forEach(function (mine) {
+          totalEnergyConsumption += mine.energyConsumption;
+        });
+
+        // Oxygen generators consume energy
+        oxygenGenerators.forEach(function (generator) {
+          totalEnergyConsumption += generator.energyConsumption;
+        });
+
+        // Defense turrets consume energy
+        defenseTurrets.forEach(function (turret) {
+          totalEnergyConsumption += turret.energyConsumption;
+        });
+
+        // Units consume energy
+        rovers.forEach(function (rover) {
+          totalEnergyConsumption += rover.energyConsumption;
+        });
+
+        engineers.forEach(function (engineer) {
+          totalEnergyConsumption += engineer.energyConsumption;
+        });
+
+        // Subtract energy consumption
+        energy -= totalEnergyConsumption * (1 / 60); // Assuming 60 FPS
+
+        if (energy < 0) {
+          energy = 0;
+          addLog("Energy depleted! Buildings are not functioning properly.");
+        }
+
+        // Habitats generate a small amount of minerals over time
+        if (energy > 10) {
+          minerals += 0.01 * habitats.length;
+        }
+
+        // Mines generate minerals if there's enough energy
+        if (energy > 10) {
+          minerals += 0.02 * mines.length;
+        }
+
+        // Oxygen generators increase oxygen level if there's enough energy
+        if (energy > 10) {
+          oxygen += 0.0001 * oxygenGenerators.length;
+        }
+
+        // Solar panels generate energy, affected by oxygen level
+        energy += 0.1 * solarPanels.length * ((200 - oxygen) / 100);
+
+        // Cap energy and oxygen
+        if (energy > 1000) energy = 1000;
+        if (oxygen > 100) oxygen = 100;
+      }
+
+      function enemyLogic() {
+        // Adjusted enemy spawning logic
+        // Enemies start appearing after 1 minute of game time
+        if (gameTime > 60 && Math.random() < 0.005 * (1 + gameTime / 600)) {
+          // Spawn a new enemy
+          var x = Math.random() * canvas.width;
+          var y = -10; // Spawn at the top
+
+          // Increase enemy health over time
+          var baseHealth = 50;
+          var healthIncrement = Math.floor(gameTime / 60) * 50; // Increase health every minute
+          var enemyHealth = baseHealth + healthIncrement;
+
+          enemies.push(new Enemy(x, y, 0.5, enemyHealth));
+        }
+
+        // Move enemies towards habitats
+        enemies.forEach(function (enemy) {
+          var targets = oxygenGenerators.concat(
+            mines,
+            solarPanels,
+            habitats,
+            defenseTurrets
+          );
+          if (targets.length > 0) {
+            var target = targets[0]; // Target the first structure
+            // Find closest target based on distance
+            var closestDist = Infinity;
+            for (let t of targets) {
+              var dx = t.x - enemy.x;
+              var dy = t.y - enemy.y;
+              var dist = Math.sqrt(dx * dx + dy * dy);
+              if (dist < closestDist) {
+                closestDist = dist;
+                target = t;
+              }
+            }
+            var dx = target.x - enemy.x;
+            var dy = target.y - enemy.y;
+            var dist = Math.sqrt(dx * dx + dy * dy);
+            enemy.x += (dx / dist) * enemy.speed;
+            enemy.y += (dy / dist) * enemy.speed;
+
+            // Check for collision with buildings
+            if (dist < enemy.size + target.size / 2) {
+              target.health -= 0.01;
+              if (target.health <= 0) {
+                if (habitats.includes(target)) {
+                  habitats.splice(habitats.indexOf(target), 1);
+                  population -= 10;
+                  addLog("A habitat was destroyed by an enemy!");
+                } else if (mines.includes(target)) {
+                  mines.splice(mines.indexOf(target), 1);
+                  addLog("A mine was destroyed by an enemy!");
+                } else if (oxygenGenerators.includes(target)) {
+                  oxygenGenerators.splice(oxygenGenerators.indexOf(target), 1);
+                  addLog("An oxygen generator was destroyed by an enemy!");
+                } else if (solarPanels.includes(target)) {
+                  solarPanels.splice(solarPanels.indexOf(target), 1);
+                  addLog("A solar panel was destroyed by an enemy!");
+                } else if (defenseTurrets.includes(target)) {
+                  defenseTurrets.splice(defenseTurrets.indexOf(target), 1);
+                  addLog("A defense turret was destroyed by an enemy!");
+                }
+              }
+            }
+          }
+        });
+
+        // Defense turrets attack enemies
+        defenseTurrets.forEach(function (turret) {
+          // Find enemies within range
+          var enemiesInRange = enemies.filter(function (enemy) {
+            var dx = enemy.x - turret.x;
+            var dy = enemy.y - turret.y;
+            var dist = Math.sqrt(dx * dx + dy * dy);
+            return dist < turret.attackRange;
+          });
+
+          if (enemiesInRange.length > 0) {
+            // Find the closest enemy
+            var closestEnemy = enemiesInRange.reduce(function (closest, enemy) {
+              var dx = enemy.x - turret.x;
+              var dy = enemy.y - turret.y;
+              var dist = Math.sqrt(dx * dx + dy * dy);
+              var closestDist = Math.sqrt(
+                (closest.x - turret.x) ** 2 + (closest.y - turret.y) ** 2
+              );
+              return dist < closestDist ? enemy : closest;
+            }, enemiesInRange[0]);
+
+            // Attack the closest enemy
+            closestEnemy.health -= 1; // Adjust turret damage as needed
+
+            // Draw attack line
+            ctx.strokeStyle = "#ff0000";
+            ctx.beginPath();
+            ctx.moveTo(turret.x, turret.y);
+            ctx.lineTo(closestEnemy.x, closestEnemy.y);
+            ctx.stroke();
+          }
+        });
+
+        // Remove dead enemies
+        enemies = enemies.filter(function (enemy) {
+          return enemy.health > 0;
+        });
+      }
+
+      function unitActions() {
+        // Rovers collect minerals from the ground
+        rovers.forEach(function (rover) {
+          if (!rover.target) {
+            rover.target = {
+              x: Math.random() * canvas.width,
+              y: Math.random() * canvas.height,
+            };
+          }
+          var dx = rover.target.x - rover.x;
+          var dy = rover.target.y - rover.y;
+          var dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist > 1) {
+            rover.x += (dx / dist) * 0.5;
+            rover.y += (dy / dist) * 0.5;
+          } else {
+            minerals += 0.1; // Increased rover mineral collection
+            rover.target = null;
+          }
+        });
+
+        // Engineers repair nearby structures
+        engineers.forEach(function (engineer) {
+          var structures = habitats.concat(
+            solarPanels,
+            mines,
+            oxygenGenerators,
+            defenseTurrets
+          );
+          structures.forEach(function (structure) {
+            var dx = structure.x - engineer.x;
+            var dy = structure.y - engineer.y;
+            var dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < 50 && structure.health < 100) {
+              structure.health += 0.3; // Increased repair rate
+              if (structure.health > 100) structure.health = 100;
+              ctx.strokeStyle = "#00ff00";
+              ctx.beginPath();
+              ctx.moveTo(engineer.x, engineer.y);
+              ctx.lineTo(structure.x, structure.y);
+              ctx.stroke();
+            }
+          });
+        });
+      }
+
+      function environmentEffects() {
+        // Random dust storms reduce energy production
+        if (Math.random() < 0.0001) {
+          var duration = 500;
+          addLog("A dust storm has started!");
+          var stormInterval = setInterval(function () {
+            energy -= 0.5 * solarPanels.length; // Adjusted storm impact
+            if (duration-- <= 0) {
+              clearInterval(stormInterval);
+              addLog("The dust storm has ended.");
+            }
+          }, 100);
+        }
+      }
+
+      function checkWinCondition() {
+        if (oxygen >= 100 && population >= 200 && techLevel >= 5 && !gameOver) {
+          gameOver = true;
+          document.getElementById("winScreen").style.display = "flex";
+          addLog("You have successfully terraformed Mars!");
+        }
+      }
+
+      function checkLoseCondition() {
+        if (habitats.length === 0 && population <= 0) {
+          gameOver = true;
+          document.getElementById("loseScreen").style.display = "flex";
+          addLog("Your colony has failed!");
+        }
+      }
+
+      // Start the game
+      updateStats();
+      updateActions();
+      gameLoop();
+    </script>
+  </body>
+</html>
